@@ -1,7 +1,7 @@
 import feedparser
 import datetime
 import threading
-
+import pickle
 
 class Subscription(object):
 
@@ -68,18 +68,18 @@ class PeriodicScheduler(threading.Thread):
 	lock = threading.Lock()
 	terminate = False
 
+	def __init__(self):
+		threading.Thread.__init__(self, name='Scheduler')
+
 	def addTimer(self, callback, interval, delay=datetime.timedelta()):
-		interval = self.defaultInterval
+		with self.lock:
+			self.items.append({
+				'nextCall' : datetime.datetime.now() + delay,
+				'interval' : interval,
+				'callback' : callback,
+			})
 
-		self.lock.acquire()
-		self.items.append({
-			'nextCall' : datetime.datetime.now() + delay,
-			'interval' : interval,
-			'callback' : callback,
-		})
-		self.lock.release()
-
-		self.schedule.set()
+			self.schedule.set()
 	
 	def run(self):
 		self.scheduleTimer = None
@@ -87,61 +87,89 @@ class PeriodicScheduler(threading.Thread):
 
 			# wait for events
 			self.schedule.wait()
-			print 'event!', datetime.datetime.now()
+			print 'event'
 
-			self.lock.acquire()
-
-			if self.terminate:
-				if self.scheduleTimer:
-					self.scheduleTimer.cancel()
-				print 'terminated'
-				self.lock.release()
-				return
+			with self.lock:
+				if self.terminate:
+					if self.scheduleTimer:
+						self.scheduleTimer.cancel()
+					print 'terminated'
+					return
 
 
-			# process timeouts
-			now = datetime.datetime.now()
+				# process timeouts
+				now = datetime.datetime.now()
 
-			nextTimeout = None
-			for i in self.items:
-				if i['nextCall'] < now:
-					i['callback']()
-					i['nextCall'] = now + i['interval']
+				nextTimeout = None
+				for i in self.items:
+					if i['nextCall'] < now:
+						i['callback']()
+						i['nextCall'] = now + i['interval']
 
+					if nextTimeout:
+						nextTimeout = min(nextTimeout, i['nextCall'])
+					else:
+						nextTimeout = i['nextCall']
+
+				# schedule
 				if nextTimeout:
-					nextTimeout = min(nextTimeout, i['nextCall'])
-				else:
-					nextTimeout = i['nextCall']
+					if self.scheduleTimer:
+						self.scheduleTimer.cancel()
 
-			# schedule
-			if nextTimeout:
-				if self.scheduleTimer:
-					self.scheduleTimer.cancel()
-
-				self.scheduleTimer = threading.Timer((nextTimeout - now).seconds + float((nextTimeout - now).microseconds) / 1000000, self.timeout)
-				self.scheduleTimer.start()
+					self.scheduleTimer = threading.Timer((nextTimeout - now).seconds + float((nextTimeout - now).microseconds) / 1000000, self.timeout)
+					self.scheduleTimer.start()
 
 
-			self.schedule.clear()
-			self.lock.release()
+				self.schedule.clear()
 
 
 	def timeout(self):
-		self.lock.acquire()
-		self.schedule.set()
-		self.scheduleTimer = None
-		self.lock.release()
-
-	def wakeUp(self):
-		self.lock.acquire()
-		self.schedule.set()
-		self.lock.release()
+		with self.lock:
+			self.schedule.set()
+			self.scheduleTimer = None
 
 	def stop(self):
 		self.terminate = True
 
-		self.wakeUp()
+		with self.lock:
+			self.schedule.set()
 
 
-#s = Subscription('http://feedparser.org/docs/examples/atom10.xml')
-#s.update()
+
+
+dbfile = 'subscriptions.db'
+
+# load/create subs db
+try:
+	subs = pickle.load(open(dbfile))
+	print 'loaded %d subscriptions from disk' % len(subs)
+except IOError as e:
+	print 'could not load subscriptions', str(e)
+	print 'creating default database'
+	subs = [
+		Subscription('http://feedparser.org/docs/examples/atom10.xml'),
+		Subscription('http://www.glassoforange.co.uk/?feed=atom'),
+		Subscription('http://blog.lostpedia.com/feeds/posts/default?alt=rss'),
+	]
+
+
+try:
+
+	ps = PeriodicScheduler()
+	ps.start()
+
+	for s in subs:
+		# reset updating state 
+		s.state = s.stateIdle
+		ps.addTimer(s.update, datetime.timedelta(seconds=300))
+
+	print 'waiting 3 secs for feeds to load'
+	import time
+	time.sleep(3)
+
+
+finally:
+	ps.stop()
+
+# write subs db
+pickle.dump(subs, open(dbfile, 'w'))
