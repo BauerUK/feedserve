@@ -1,3 +1,18 @@
+feedserve - serve aggregated feeds (locally) via HTTP
+
+REQUIREMENTS
+============
+
+	- http://feedparser.org/
+	- http://www.cherrypy.org/
+
+# aptitude install python-feedparser python-cherrypy3
+
+
+
+COMMUNICATION DESIGN
+====================
+
 main thread
 starts the scheduler thread and then the webserver (cherrypy), blocking.
 
