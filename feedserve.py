@@ -1,21 +1,79 @@
+import feedparser
 import datetime
 import threading
 
 
+class Subscription(object):
+
+	lock = threading.Lock()
+
+	stateIdle = 0
+	stateUpdating = 2 # the subscription is updating right now
+	stateError = 3 # some error occured. TODO add more detail: 404, connection refused, timeout ..?
+	
+	def __init__(self, uri, lastUpdate = None):
+		self.uri = uri
+		self.lastUpdate = lastUpdate
+
+		self.state = self.stateIdle
+
+	def update(self):
+		self.lock.acquire()
+
+		if self.state == self.stateUpdating:
+			self.lock.release()
+			raise ValueError('already updating')
+
+		FeedDownloadWorker(self.uri, self.receiveData, self.receiveError).start()
+		self.state = self.stateUpdating
+
+		self.lock.release()
+	
+	def receiveData(self, data):
+		print 'got data. feed title = %s' % data.feed.title
+		self.lock.acquire()
+
+		self.state = self.stateIdle
+
+		self.lock.release()
+	
+	def receiveError(self, data):
+		print 'got error'
+		self.lock.acquire()
+
+		self.state = self.stateError
+
+		self.lock.release()
+
+
+class FeedDownloadWorker(threading.Thread):
+	def __init__(self, uri, dataCallback, errorCallback):
+		threading.Thread.__init__(self)
+		self.dataCallback = dataCallback
+		self.errorCallback = errorCallback
+		self.uri = uri
+	
+	def run(self):
+		data = feedparser.parse(self.uri)
+
+		if data.bozo == 1:
+			self.errorCallback(data)
+		else:
+			self.dataCallback(data)
+
+
 class PeriodicScheduler(threading.Thread):
-	defaultInterval = 3600
 	items = []
 	schedule = threading.Event()
 	lock = threading.Lock()
 	terminate = False
 
-	def addTimer(self, callback, interval):
-		if not interval:
-			interval = self.defaultInterval
+	def addTimer(self, callback, interval, delay=datetime.timedelta()):
+		interval = self.defaultInterval
 
 		self.lock.acquire()
 		self.items.append({
-			'nextCall' : datetime.datetime.now(),
+			'nextCall' : datetime.datetime.now() + delay,
 			'interval' : interval,
 			'callback' : callback,
 		})
@@ -29,12 +87,9 @@ class PeriodicScheduler(threading.Thread):
 
 			# wait for events
 			self.schedule.wait()
+			print 'event!', datetime.datetime.now()
 
-			print 'event! locking...'
-			
 			self.lock.acquire()
-
-			print 'locked.'
 
 			if self.terminate:
 				if self.scheduleTimer:
@@ -60,15 +115,16 @@ class PeriodicScheduler(threading.Thread):
 
 			# schedule
 			if nextTimeout:
+				if self.scheduleTimer:
+					self.scheduleTimer.cancel()
 
-				if not self.scheduleTimer:
-					self.scheduleTimer = threading.Timer((nextTimeout - now).seconds + float((nextTimeout - now).microseconds) / 1000000, self.timeout)
-					self.scheduleTimer.start()
+				self.scheduleTimer = threading.Timer((nextTimeout - now).seconds + float((nextTimeout - now).microseconds) / 1000000, self.timeout)
+				self.scheduleTimer.start()
+
 
 			self.schedule.clear()
 			self.lock.release()
 
-			print 'unlocked.'
 
 	def timeout(self):
 		self.lock.acquire()
@@ -86,18 +142,6 @@ class PeriodicScheduler(threading.Thread):
 
 		self.wakeUp()
 
-def every1s():
-	print 'every 1s'
-def every3s():
-	print 'every 3s'
-def every10s():
-	print 'every 10s'
 
-ps = PeriodicScheduler()
-ps.start()
-
-ps.addTimer(every1s, datetime.timedelta(seconds=1))
-ps.addTimer(every3s, datetime.timedelta(seconds=3))
-ps.addTimer(every10s, datetime.timedelta(seconds=10))
-
-
+#s = Subscription('http://feedparser.org/docs/examples/atom10.xml')
+#s.update()

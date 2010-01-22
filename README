@@ -1,0 +1,9 @@
+main thread
+starts the scheduler thread and then the webserver (cherrypy), blocking.
+
+scheduler thread
+multi timer manager, triggers feed loading. one feed is loaded in a FeedDownloadWorker
+
+
+
+
