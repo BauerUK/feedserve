@@ -3,6 +3,13 @@ import datetime
 import threading
 import pickle
 
+
+def dt(t):
+	return datetime.datetime(year=t[0], month=t[1], day=t[2], hour=t[3], minute=t[4], second=t[5])
+
+class Entry(object):
+	pass
+
 class Subscription(object):
 
 	lock = threading.Lock()
@@ -14,41 +21,58 @@ class Subscription(object):
 	def __init__(self, uri, lastUpdate = None):
 		self.uri = uri
 		self.lastUpdate = lastUpdate
+		self.entries = {}
 
 		self.state = self.stateIdle
 
 	def update(self):
-		self.lock.acquire()
+		with self.lock:
+			if self.state == self.stateUpdating:
+				self.lock.release()
+				raise ValueError('already updating')
 
-		if self.state == self.stateUpdating:
-			self.lock.release()
-			raise ValueError('already updating')
+			FeedDownloadWorker(self.uri, self.receiveData, self.receiveError).start()
+			self.state = self.stateUpdating
 
-		FeedDownloadWorker(self.uri, self.receiveData, self.receiveError).start()
-		self.state = self.stateUpdating
-
-		self.lock.release()
-	
 	def receiveData(self, data):
 		print 'got data. feed title = %s' % data.feed.title
-		self.lock.acquire()
+		with self.lock:
+			for entry in data.entries:
+				e = Entry()
+				e.title = entry.title
+				e.uri = entry.link
+				e.globalId = entry.id
 
-		self.state = self.stateIdle
+				if 'published_parsed' in entry:
+					e.time = max(dt(entry.published_parsed), dt(entry.updated_parsed))
+				else:
+					e.time = dt(entry.updated_parsed)
 
-		self.lock.release()
+				e.read = False
+
+				# make sure we keep the read status if there hasn't been any update
+				if entry.id in self.entries:
+					if self.entries[entry.id].time == e.time and self.entries[entry.id].read:
+						e.read = True
+				else:
+					print 'new item %s' % e.title
+				
+				# update it anyway (title etc.)
+				self.entries[entry.id] = e
+
+			self.state = self.stateIdle
 	
 	def receiveError(self, data):
 		print 'got error'
-		self.lock.acquire()
 
-		self.state = self.stateError
+		with self.lock:
+			self.state = self.stateError
 
-		self.lock.release()
 
 
 class FeedDownloadWorker(threading.Thread):
 	def __init__(self, uri, dataCallback, errorCallback):
-		threading.Thread.__init__(self)
+		threading.Thread.__init__(self, name='FeedDownloader')
 		self.dataCallback = dataCallback
 		self.errorCallback = errorCallback
 		self.uri = uri
