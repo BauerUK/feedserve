@@ -1,8 +1,10 @@
-import feedparser
 import datetime
 import threading
 import pickle
+import copy
 
+import feedparser
+import cherrypy
 
 def dt(t):
 	return datetime.datetime(year=t[0], month=t[1], day=t[2], hour=t[3], minute=t[4], second=t[5])
@@ -21,6 +23,7 @@ class Subscription(object):
 	def __init__(self, uri, lastUpdate = None):
 		self.uri = uri
 		self.lastUpdate = lastUpdate
+		self.title = '???'
 		self.entries = {}
 
 		self.state = self.stateIdle
@@ -37,6 +40,7 @@ class Subscription(object):
 	def receiveData(self, data):
 		print 'got data. feed title = %s' % data.feed.title
 		with self.lock:
+			self.title = data.feed.title
 			for entry in data.entries:
 				e = Entry()
 				e.title = entry.title
@@ -67,6 +71,18 @@ class Subscription(object):
 
 		with self.lock:
 			self.state = self.stateError
+	
+	# return a "page" of entries, sorted by date
+	def getPage(self, num=0):
+		pageSize = 10
+		
+		with self.lock:
+			entries = copy.deepcopy(self.entries.values())
+
+		entries.sort(key=lambda x: x.time, reverse=True)
+
+		return entries[num*pageSize:pageSize+1]
+		
 
 
 
@@ -159,7 +175,30 @@ class PeriodicScheduler(threading.Thread):
 			self.schedule.set()
 
 
+class TestPage(object):
+	def index(self):
 
+		html = '<h1>Feeds</h1>'
+
+		for sub in subs:
+
+			html += '<div style="float: left;"><h3>%s</h3><ul>' % sub.title
+			entries = sub.getPage()
+
+			for e in entries:
+				html += '<li><a href="%s">%s</a></li>' % (e.uri, e.title)
+
+			html += '</ul></div>'
+
+		return html
+	
+	index.exposed = True
+
+
+class SchedulerStopper(cherrypy.process.plugins.SimplePlugin):
+	def stop(self):
+		print 'SchedulerStopper'
+		ps.stop()
 
 dbfile = 'subscriptions.db'
 
@@ -174,6 +213,7 @@ except IOError as e:
 		Subscription('http://feedparser.org/docs/examples/atom10.xml'),
 		Subscription('http://www.glassoforange.co.uk/?feed=atom'),
 		Subscription('http://blog.lostpedia.com/feeds/posts/default?alt=rss'),
+		Subscription('http://www.spiegel.de/schlagzeilen/index.rss'),
 	]
 
 
@@ -187,10 +227,14 @@ try:
 		s.state = s.stateIdle
 		ps.addTimer(s.update, datetime.timedelta(seconds=300))
 
-	print 'waiting 3 secs for feeds to load'
-	import time
-	time.sleep(3)
+#	print 'waiting 3 secs for feeds to load'
+#	import time
+#	time.sleep(3)
 
+	stopper = SchedulerStopper(cherrypy.engine)
+	stopper.subscribe()
+
+	cherrypy.quickstart(TestPage())
 
 finally:
 	ps.stop()
