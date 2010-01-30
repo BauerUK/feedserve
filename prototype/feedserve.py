@@ -2,6 +2,7 @@ import datetime
 import threading
 import pickle
 import copy
+import urllib
 
 import feedparser
 import cherrypy
@@ -120,6 +121,14 @@ class PeriodicScheduler(threading.Thread):
 			})
 
 			self.schedule.set()
+
+	def removeTimer(self, callback):
+		with self.lock:
+			for item in self.items:
+				if item['callback'] == callback:
+					self.items.remove(item)
+					print 'timer removed'
+					return
 	
 	def run(self):
 		self.scheduleTimer = None
@@ -220,11 +229,11 @@ body {
 """
 
 		html = '<!doctype html>\n<html><head><title>feedserve.py</title><style>%s</style></head><body>' % css
-		html += '<h1>Feeds</h1>'
+		html += '<h1>Feeds</h1><form action="/addSubscription" method="post"><input type="text" name="uri"><input type="submit" value="add"></form>'
 
 		for sub in subs:
 
-			html += '<div class="feedbox"><h3>%s</h3><ul>' % sub.title
+			html += '<div class="feedbox"><h3>%s <a href="/removeSubscription?uri=%s">X</a></h3><ul>' % (sub.title, urllib.quote(sub.uri))
 			entries = sub.getPage()
 
 			for e in entries:
@@ -237,6 +246,32 @@ body {
 		return html
 	
 	index.exposed = True
+
+	def addSubscription(self, uri=None):
+		if uri:
+			s = Subscription(uri)
+			subs.append(s)
+
+			ps.addTimer(s.update, datetime.timedelta(seconds=1800))
+
+		raise cherrypy.HTTPRedirect("/", 302)
+	
+	addSubscription.exposed = True
+	
+
+	def removeSubscription(self, uri=None):
+		if uri:
+			for sub in subs:
+				if sub.uri == uri:
+					ps.removeTimer(sub.update)
+					subs.remove(sub)
+					break
+
+		raise cherrypy.HTTPRedirect("/", 302)
+	
+	removeSubscription.exposed = True
+
+
 
 
 class SchedulerStopper(cherrypy.process.plugins.SimplePlugin):
