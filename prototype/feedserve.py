@@ -178,17 +178,61 @@ class PeriodicScheduler(threading.Thread):
 class TestPage(object):
 	def index(self):
 
-		html = '<h1>Feeds</h1>'
+		css = """
+body {
+	background-color: #eee;
+}
+
+.feedbox {
+	float: left;
+	width: 25em;
+	font-family: sans-serif;
+	font-size: 80%;
+	background-color: white;
+	border: 1px solid #aaa;
+	margin: 1em;
+}
+
+.feedbox h3 {
+	background-color: #aaa;
+	color: white;
+	margin: 0;
+	padding: .5em;
+}
+
+.feedbox ul {
+	list-style-type: square;
+}
+
+.feedbox ul li a:link {
+	color: black;
+	text-decoration: none;
+}
+
+.feedbox ul li a:visited {
+	color: darkgray;
+	text-decoration: none;
+}
+
+.feedbox ul li a:hover {
+	background-color: #e7ffc9;
+}
+"""
+
+		html = '<!doctype html>\n<html><head><title>feedserve.py</title><style>%s</style></head><body>' % css
+		html += '<h1>Feeds</h1>'
 
 		for sub in subs:
 
-			html += '<div style="float: left;"><h3>%s</h3><ul>' % sub.title
+			html += '<div class="feedbox"><h3>%s</h3><ul>' % sub.title
 			entries = sub.getPage()
 
 			for e in entries:
 				html += '<li><a href="%s">%s</a></li>' % (e.uri, e.title)
 
 			html += '</ul></div>'
+
+		html += '</body></html>'
 
 		return html
 	
@@ -225,7 +269,7 @@ try:
 	for s in subs:
 		# reset updating state 
 		s.state = s.stateIdle
-		ps.addTimer(s.update, datetime.timedelta(seconds=300))
+		ps.addTimer(s.update, datetime.timedelta(seconds=1800))
 
 #	print 'waiting 3 secs for feeds to load'
 #	import time
