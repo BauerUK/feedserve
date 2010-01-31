@@ -10,6 +10,27 @@ import cherrypy
 def dt(t):
 	return datetime.datetime(year=t[0], month=t[1], day=t[2], hour=t[3], minute=t[4], second=t[5])
 
+def formatTimeDelta(delta):
+	second = 1
+	minute = 60 * second
+	hour = 60 * minute
+	day = 24 * hour
+	week = 7 * day
+	month = 4 * week
+	year = 12 * month
+
+	durations = [year, month, week, day, hour, minute, second]
+	names = ['year', 'month', 'week', 'day', 'hour', 'minute', 'second']
+
+	for i, d in enumerate(durations):
+		n = (delta.seconds + delta.days * day) / d
+
+		if n > 0:
+			if n == 1:
+				return 'one %s' % names[i]
+			else:
+				return '%d %ss' % (n, names[i])
+
 class Entry(object):
 	pass
 
@@ -98,9 +119,14 @@ class FeedDownloadWorker(threading.Thread):
 		data = feedparser.parse(self.uri)
 
 		if data.bozo == 1:
-			self.errorCallback(data)
+			if type(data.bozo_exception).__name__ == 'URLError':
+				self.errorCallback(data)
+			else:
+				print 'non-critical error:', str(data.bozo_exception)
+				self.dataCallback(data)
 		else:
 			self.dataCallback(data)
+			
 
 
 class PeriodicScheduler(threading.Thread):
@@ -187,6 +213,8 @@ class PeriodicScheduler(threading.Thread):
 class TestPage(object):
 	def index(self):
 
+		now = datetime.datetime.now()
+
 		css = """
 body {
 	background-color: #eee;
@@ -194,12 +222,17 @@ body {
 
 .feedbox {
 	float: left;
-	width: 25em;
-	font-family: sans-serif;
-	font-size: 80%;
+	width: 30em;
+	font-family: Tahoma,Verdana,Arial,Helvetica,"Bitstream Vera Sans",sans-serif;
+	font-size: 70%;
 	background-color: white;
 	border: 1px solid #aaa;
 	margin: 1em;
+}
+
+.duration {
+	font-size: 90%;
+	color: darkgray;
 }
 
 .feedbox h3 {
@@ -219,7 +252,7 @@ body {
 }
 
 .feedbox ul li a:visited {
-	color: darkgray;
+	color: #777;
 	text-decoration: none;
 }
 
@@ -237,7 +270,7 @@ body {
 			entries = sub.getPage()
 
 			for e in entries:
-				html += '<li><a href="%s">%s</a></li>' % (e.uri, e.title)
+				html += '<li><a href="%s">%s</a> <span class="duration">&ndash; %s ago</span></li>' % (e.uri, e.title, formatTimeDelta(now - e.time))
 
 			html += '</ul></div>'
 
