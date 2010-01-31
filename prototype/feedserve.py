@@ -211,11 +211,16 @@ class PeriodicScheduler(threading.Thread):
 
 
 class TestPage(object):
+	_cp_config = {
+		'tools.encode.on':True,
+		'tools.encode.encoding':'utf8',
+	}
+
 	def index(self):
 
 		now = datetime.datetime.now()
 
-		css = """
+		css = u"""
 body {
 	background-color: #eee;
 }
@@ -261,20 +266,20 @@ body {
 }
 """
 
-		html = '<!doctype html>\n<html><head><title>feedserve.py</title><style>%s</style></head><body>' % css
-		html += '<h1>Feeds</h1><form action="/addSubscription" method="post"><input type="text" name="uri"><input type="submit" value="add"></form>'
+		html = u'<!doctype html>\n<html><head><title>feedserve.py</title><style>%s</style></head><body>' % css
+		html += u'<h1>feedserve.py\u2122</h1><form action="/addSubscription" method="post"><input type="text" name="uri"><input type="submit" value="add"></form>'
 
 		for sub in subs:
 
-			html += '<div class="feedbox"><h3>%s <a href="/removeSubscription?uri=%s">X</a></h3><ul>' % (sub.title, urllib.quote(sub.uri))
+			html += u'<div class="feedbox"><h3>%s <a href="/removeSubscription?uri=%s">X</a></h3><ul>' % (sub.title, urllib.quote(sub.uri))
 			entries = sub.getPage()
 
 			for e in entries:
-				html += '<li><a href="%s">%s</a> <span class="duration">&ndash; %s ago</span></li>' % (e.uri, e.title, formatTimeDelta(now - e.time))
+				html += u'<li><a href="%s">%s</a> <span class="duration">&ndash; %s ago</span></li>' % (e.uri, e.title, formatTimeDelta(now - e.time))
 
-			html += '</ul></div>'
+			html += u'</ul></div>'
 
-		html += '</body></html>'
+		html += u'</body></html>'
 
 		return html
 	
@@ -346,6 +351,8 @@ try:
 	stopper = SchedulerStopper(cherrypy.engine)
 	stopper.subscribe()
 
+	cherrypy.config.update({'server.socket_host': '0.0.0.0',})
+	cherrypy.config.update({'server.socket_port': 1822,})
 	cherrypy.quickstart(TestPage())
 
 finally:
