@@ -213,7 +213,7 @@ class PeriodicScheduler(threading.Thread):
 class TestPage(object):
 	_cp_config = {
 		'tools.encode.on':True,
-		'tools.encode.encoding':'utf8',
+		'tools.encode.encoding':'utf-8',
 	}
 
 	def index(self):
@@ -266,7 +266,7 @@ body {
 }
 """
 
-		html = u'<!doctype html>\n<html><head><title>feedserve.py</title><style>%s</style></head><body>' % css
+		html = u'<!doctype html>\n<html><head><meta charset="UTF-8"><title>feedserve.py</title><style>%s</style></head><body>' % css
 		html += u'<h1>feedserve.py\u2122</h1><form action="/addSubscription" method="post"><input type="text" name="uri"><input type="submit" value="add"></form>'
 
 		for sub in subs:
