@@ -45,7 +45,7 @@ class Subscription(object):
 	def __init__(self, uri, lastUpdate = None):
 		self.uri = uri
 		self.lastUpdate = lastUpdate
-		self.title = '???'
+		self.title = '??? {Loading...}'
 		self.entries = {}
 
 		self.state = self.stateIdle
@@ -86,10 +86,12 @@ class Subscription(object):
 				# update it anyway (title etc.)
 				self.entries[entry.id] = e
 
+			self.lastUpdate = datetime.datetime.now()
+
 			self.state = self.stateIdle
 	
 	def receiveError(self, data):
-		print 'got error'
+		print 'got error (%s)' % self.title
 
 		with self.lock:
 			self.state = self.stateError
@@ -120,6 +122,7 @@ class FeedDownloadWorker(threading.Thread):
 
 		if data.bozo == 1:
 			if type(data.bozo_exception).__name__ == 'URLError':
+				print 'critical error:', str(data.bozo_exception)
 				self.errorCallback(data)
 			else:
 				print 'non-critical error:', str(data.bozo_exception)
@@ -251,12 +254,12 @@ body {
 	list-style-type: square;
 }
 
-.feedbox ul li a:link {
+.feedbox ul li a {
 	color: black;
 	text-decoration: none;
 }
 
-.feedbox ul li a:visited {
+.feedbox ul li .read {
 	color: #777;
 	text-decoration: none;
 }
@@ -275,7 +278,10 @@ body {
 			entries = sub.getPage()
 
 			for e in entries:
-				html += u'<li><a href="%s">%s</a> <span class="duration">&ndash; %s ago</span></li>' % (e.uri, e.title, formatTimeDelta(now - e.time))
+				if e.read:
+					html += u'<li><a class="read" href="/read?uri=%s">%s</a> <span class="duration">&ndash; %s ago</span></li>' % (urllib.quote(e.uri), e.title, formatTimeDelta(now - e.time))
+				else:
+					html += u'<li><a href="/read?uri=%s">%s</a> <span class="duration">&ndash; %s ago</span></li>' % (urllib.quote(e.uri), e.title, formatTimeDelta(now - e.time))
 
 			html += u'</ul></div>'
 
@@ -310,14 +316,28 @@ body {
 	removeSubscription.exposed = True
 
 
+	def read(self, uri=None):
+		if uri:
+			for sub in subs:
+				for entry in sub.entries.values():
+					if entry.uri == uri:
+						entry.read = True
+						raise cherrypy.HTTPRedirect(uri, 302)
+
+	
+	read.exposed = True
+
+
 
 
 class SchedulerStopper(cherrypy.process.plugins.SimplePlugin):
 	def stop(self):
 		print 'SchedulerStopper'
 		ps.stop()
+		pickle.dump(subs, open(dbfile, 'w'))
 
 dbfile = 'subscriptions.db'
+updateInterval = datetime.timedelta(seconds=1800)
 
 # load/create subs db
 try:
@@ -342,11 +362,16 @@ try:
 	for s in subs:
 		# reset updating state 
 		s.state = s.stateIdle
-		ps.addTimer(s.update, datetime.timedelta(seconds=1800))
+		
+		now = datetime.datetime.now()
 
-#	print 'waiting 3 secs for feeds to load'
-#	import time
-#	time.sleep(3)
+		if not s.lastUpdate or s.lastUpdate + updateInterval < now:
+			ps.addTimer(s.update, updateInterval)
+		else:
+			# this is mainly for testing, do not update on every server reload
+			print 'no update required for %s' % s.title
+			ps.addTimer(s.update, updateInterval, now - s.lastUpdate)
+			
 
 	stopper = SchedulerStopper(cherrypy.engine)
 	stopper.subscribe()
@@ -359,4 +384,3 @@ finally:
 	ps.stop()
 
 # write subs db
-pickle.dump(subs, open(dbfile, 'w'))
